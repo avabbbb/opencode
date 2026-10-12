@@ -19,6 +19,7 @@ import { DialogWorkspaceFileChanges } from "./dialog-workspace-file-changes"
 import type { WorktreeListOutput } from "@opencode/client"
 import { useRoute } from "../context/route"
 import { DialogWorktreeName } from "./dialog-worktree-name"
+import { recentWorkspaceDirectories, workspaceDirectoryCategory } from "./workspace-recent"
 
 export type WorkspaceSelection =
   | { type: "directory"; directory: string; subdirectory: boolean }
@@ -162,9 +163,32 @@ export function DialogWorkspaces(props: DialogWorkspacesProps) {
       if (b.location === b.root.directory) return 1
       return a.location.localeCompare(b.location)
     })
+    const recent = recentWorkspaceDirectories(
+      sessionData.session.list(),
+      props.projectID,
+      [currentDirectory(), current].filter((directory): directory is string => directory !== undefined),
+      list.map((item) => item.location),
+    )
+    const recentOrder = new Map(recent.map((directory, index) => [directory, index]))
+    const category = (item: (typeof list)[number]) =>
+      workspaceDirectoryCategory(
+        item.location,
+        item.root.directory,
+        currentDirectory(),
+        current,
+        recentOrder.has(item.location),
+      )
+    const rank = { Current: 0, Recent: 1, Other: 2 }
+    const ordered = list.toSorted((a, b) => {
+      const aCategory = category(a)
+      const bCategory = category(b)
+      if (aCategory !== bCategory) return rank[aCategory] - rank[bCategory]
+      if (aCategory === "Recent") return recentOrder.get(a.location)! - recentOrder.get(b.location)!
+      return 0
+    })
     const titleWidth = Math.max(1, dialogSelectContentWidth(Math.min(dialogWidth("xlarge"), dimensions().width - 2)))
 
-    return list.map((item) => {
+    return ordered.map((item) => {
       const title = abbreviateHome(item.location, paths.home)
       const suffix =
         item.location === item.root.directory ? undefined : path.sep + path.relative(item.root.directory, item.location)
@@ -192,7 +216,7 @@ export function DialogWorkspaces(props: DialogWorkspacesProps) {
           directory: item.location,
           subdirectory: item.location !== item.root.directory,
         } as const,
-        category: item.root.directory === current ? "Current" : "Other",
+        category: category(item),
         titleWidth,
         truncateTitle: "left" as const,
       }
